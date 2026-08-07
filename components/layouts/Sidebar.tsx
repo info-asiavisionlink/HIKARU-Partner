@@ -66,6 +66,10 @@ export function Sidebar({
     <>
       {/* サイドバー本体 */}
       <aside
+        className={[
+          mobileOpen ? 'translate-x-0' : '-translate-x-full',
+          'md:translate-x-0',
+        ].join(' ')}
         style={{
           position: 'fixed',
           left: 0,
@@ -78,10 +82,7 @@ export function Sidebar({
           background: 'oklch(0.04 0.002 260)',
           borderRight: `1px solid ${GOLD}26`,
           transition: 'width 0.3s, transform 0.3s',
-          // モバイル: mobileOpen=falseのとき左に隠す
-          transform: mobileOpen ? 'translateX(0)' : 'translateX(-100%)',
         }}
-        className="md:translate-x-0"
       >
         {/* ロゴエリア */}
         <div
