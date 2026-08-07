@@ -71,7 +71,7 @@ export async function loginAction(
   cookieStore.set('hk_p_role', 'partner',          opts)
   cookieStore.set('hk_p_uid',  authData.user.id,   opts)
 
-  redirect('/home')
+  redirect('/dashboard')
 }
 
 export async function logoutAction() {

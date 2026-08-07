@@ -15,13 +15,13 @@ export async function middleware(request: NextRequest) {
 
   if (isPublicPath(pathname)) {
     if (uid && role === 'partner' && pathname === '/login') {
-      return NextResponse.redirect(new URL('/home', request.url))
+      return NextResponse.redirect(new URL('/dashboard', request.url))
     }
     return response
   }
 
   if (pathname === '/') {
-    if (uid && role === 'partner') return NextResponse.redirect(new URL('/home', request.url))
+    if (uid && role === 'partner') return NextResponse.redirect(new URL('/dashboard', request.url))
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
