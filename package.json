@@ -10,9 +10,6 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@hikaru/lib": "*",
-    "@hikaru/types": "*",
-    "@hikaru/ui": "*",
     "@supabase/ssr": "^0.6.0",
     "@supabase/supabase-js": "^2.0.0",
     "lucide-react": "^0.468.0",
