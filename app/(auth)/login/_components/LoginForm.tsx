@@ -91,7 +91,9 @@ export function LoginForm() {
       <SubmitButton />
 
       <p className="text-center text-xs" style={{ color: TEXT_MUTED }}>
-        パスワードをお忘れの場合は管理者へご連絡ください。
+        <a href="/forgot-password" style={{ color: GOLD, opacity: 0.8 }} className="hover:underline">
+          パスワードをお忘れの方はこちら
+        </a>
       </p>
     </form>
   )

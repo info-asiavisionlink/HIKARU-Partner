@@ -74,6 +74,56 @@ export async function loginAction(
   redirect('/dashboard')
 }
 
+export async function forgotPasswordAction(
+  _prevState: LoginState,
+  formData: FormData
+): Promise<LoginState> {
+  const email = (formData.get('email') as string)?.trim()
+  if (!email) return { error: 'メールアドレスを入力してください。' }
+
+  const cookieStore = await cookies()
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll: () => cookieStore.getAll(),
+        setAll: (cs) => cs.forEach(({ name, value, options }) => cookieStore.set(name, value, options)),
+      },
+    }
+  )
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? ''}/reset-password`,
+  })
+  if (error) return { error: 'メール送信に失敗しました。' }
+  return { error: null }
+}
+
+export async function resetPasswordAction(
+  _prevState: LoginState,
+  formData: FormData
+): Promise<LoginState> {
+  const password        = formData.get('password')        as string
+  const confirmPassword = formData.get('confirmPassword') as string
+  if (!password || password.length < 8) return { error: 'パスワードは8文字以上で入力してください。' }
+  if (password !== confirmPassword)      return { error: 'パスワードが一致しません。' }
+
+  const cookieStore = await cookies()
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll: () => cookieStore.getAll(),
+        setAll: (cs) => cs.forEach(({ name, value, options }) => cookieStore.set(name, value, options)),
+      },
+    }
+  )
+  const { error } = await supabase.auth.updateUser({ password })
+  if (error) return { error: 'パスワードの変更に失敗しました。' }
+  redirect('/dashboard')
+}
+
 export async function logoutAction() {
   const cookieStore = await cookies()
   const supabase = createServerClient(
