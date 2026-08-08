@@ -3,9 +3,18 @@
 import * as React from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { MapPin, Phone, ShieldAlert, Clock, Info, Key, Navigation, ArrowLeft, Calendar, Zap, RotateCcw, Hotel } from 'lucide-react'
+import {
+  MapPin, Phone, ShieldAlert, Clock, Info, Key, Navigation, ArrowLeft,
+  Calendar, Zap, RotateCcw, Hotel, PlayCircle, Camera, CheckCircle2,
+  BookOpen, Sparkles, BarChart3, FileText,
+} from 'lucide-react'
+import { getOrCreateTodayJob, completeJob, type JobRow } from '@/services/jobs.service'
+import { getJobPhotos, type PhotoRow } from '@/services/photos.service'
+import { WorkProgress, SpotStatusDot } from '@/components/worker/WorkProgress'
+import { toast } from '@/lib/toast'
 
-const GOLD = 'oklch(0.73 0.12 78)'
+const GOLD    = 'oklch(0.73 0.12 78)'
+const SUCCESS = 'oklch(0.72 0.18 150)'
 
 function InfoRow({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value?: string | null }) {
   if (!value) return null
@@ -36,27 +45,138 @@ function typeInfo(type: string) {
   return { label: type, color: 'oklch(0.55 0.007 75)', icon: Zap }
 }
 
+// ============================================================
+// AIボタングリッド
+// ============================================================
+function ActionTile({
+  href, icon: Icon, label, primary, iconBg, iconColor,
+}: {
+  href: string
+  icon: React.ElementType
+  label: string
+  primary?: boolean
+  iconBg?: string
+  iconColor?: string
+}) {
+  return (
+    <Link
+      href={href}
+      className="flex flex-col items-center gap-2 rounded-2xl px-2 py-3.5 transition-transform active:scale-[0.97]"
+      style={primary
+        ? { background: GOLD, color: 'oklch(0.06 0.003 260)', boxShadow: `0 0 20px ${GOLD}30` }
+        : { background: 'oklch(0.09 0.005 255 / 0.82)', border: `1px solid ${GOLD}15`, color: 'oklch(0.90 0.008 75)' }
+      }
+    >
+      <span
+        className="flex h-10 w-10 items-center justify-center rounded-xl"
+        style={primary
+          ? { background: 'oklch(1 0 0 / 0.2)', color: 'oklch(0.06 0.003 260)' }
+          : { background: iconBg ?? `${GOLD}12`, color: iconColor ?? GOLD }
+        }
+      >
+        <Icon className="h-5 w-5" />
+      </span>
+      <p className="text-[11px] font-semibold">{label}</p>
+    </Link>
+  )
+}
+
+// ============================================================
+// メインページ
+// ============================================================
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
+
   const [project, setProject] = React.useState<any>(null)
   const [loading, setLoading] = React.useState(true)
 
+  const [photoSpots, setPhotoSpots] = React.useState<any[]>([])
+  const [activeJob,  setActiveJob]  = React.useState<JobRow | null>(null)
+  const [photos,     setPhotos]     = React.useState<PhotoRow[]>([])
+
+  const [starting,   setStarting]   = React.useState(false)
+  const [completing, setCompleting] = React.useState(false)
+
   React.useEffect(() => {
-    fetch('/api/projects', { credentials: 'include', cache: 'no-store' })
-      .then(r => { if (r.status === 401) { router.replace('/login'); return null } return r.json() })
-      .then(d => {
-        if (!d) return
-        const found = (d.data ?? []).find((p: any) => p.id === id)
-        setProject(found ?? null)
-      })
-      .finally(() => setLoading(false))
+    async function load() {
+      const projRes = await fetch('/api/projects', { credentials: 'include', cache: 'no-store' })
+      if (projRes.status === 401) { router.replace('/login'); return }
+      const projJson = await projRes.json().catch(() => ({}))
+      const found = (projJson.data ?? []).find((p: any) => p.id === id)
+      setProject(found ?? null)
+
+      // 撮影箇所（API経由）
+      const spotsRes = await fetch(`/api/projects/${id}/spots`, { credentials: 'include', cache: 'no-store' })
+      if (spotsRes.ok) {
+        const j = await spotsRes.json()
+        setPhotoSpots(j.data ?? [])
+      }
+
+      // 今日のjob
+      const todayRes = await fetch(`/api/jobs/today?projectId=${id}`, { credentials: 'include', cache: 'no-store' })
+      if (todayRes.ok) {
+        const j = await todayRes.json()
+        const job = j.data as JobRow | null
+        if (job) {
+          setActiveJob(job)
+          const ph = await getJobPhotos(job.id)
+          setPhotos(ph)
+        }
+      }
+
+      setLoading(false)
+    }
+    load()
   }, [id, router])
+
+  async function handleStartWork() {
+    setStarting(true)
+    const job = await getOrCreateTodayJob(id)
+    if (!job) {
+      toast.error('作業開始に失敗しました')
+      setStarting(false)
+      return
+    }
+    setActiveJob(job)
+    router.push(`/projects/${id}/before`)
+  }
+
+  async function handleComplete() {
+    if (!activeJob) return
+    const requiredSpots  = photoSpots.filter((s) => s.is_required)
+    const completedSpots = requiredSpots.filter((s) => {
+      const hasBefore = photos.some((p) => p.spot_id === s.id && p.photo_type === 'before')
+      const hasAfter  = photos.some((p) => p.spot_id === s.id && p.photo_type === 'after')
+      return hasBefore && hasAfter
+    })
+
+    if (completedSpots.length < requiredSpots.length) {
+      toast.error(`必須撮影箇所があと${requiredSpots.length - completedSpots.length}件残っています`)
+      return
+    }
+
+    setCompleting(true)
+    const ok = await completeJob(activeJob.id)
+    if (ok) {
+      setActiveJob({ ...activeJob, status: 'completed', completed_at: new Date().toISOString() })
+      toast.success('作業完了しました！お疲れ様でした！')
+    } else {
+      toast.error('完了処理に失敗しました')
+    }
+    setCompleting(false)
+  }
+
+  // ---- 統計 ----
+  const beforeCount = photoSpots.filter((s) => photos.some((p) => p.spot_id === s.id && p.photo_type === 'before')).length
+  const afterCount  = photoSpots.filter((s) => photos.some((p) => p.spot_id === s.id && p.photo_type === 'after')).length
+  const totalSpots  = photoSpots.length
+  const isJobCompleted = activeJob?.status === 'completed'
 
   if (loading) {
     return (
       <div className="flex justify-center py-16">
-        <div className="h-8 w-8 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: GOLD, borderTopColor: 'transparent' }} />
+        <div className="h-8 w-8 rounded-full border-2 animate-spin" style={{ borderColor: GOLD, borderTopColor: 'transparent' }} />
       </div>
     )
   }
@@ -77,7 +197,7 @@ export default function ProjectDetailPage() {
   const timeRange = [project.work_start_time, project.work_end_time].filter(Boolean).join(' 〜 ')
 
   return (
-    <div className="max-w-2xl space-y-4">
+    <div className="max-w-2xl space-y-4 pb-32">
       {/* 戻るボタン + タイトル */}
       <div className="flex items-start gap-3">
         <button
@@ -95,6 +215,34 @@ export default function ProjectDetailPage() {
           )}
         </div>
       </div>
+
+      {/* 完了バナー */}
+      {isJobCompleted && (
+        <div
+          className="rounded-2xl px-4 py-3 flex items-center gap-3"
+          style={{ background: `${SUCCESS}15`, border: `1px solid ${SUCCESS}40` }}
+        >
+          <CheckCircle2 className="h-5 w-5 shrink-0" style={{ color: SUCCESS }} />
+          <div>
+            <p className="text-sm font-semibold" style={{ color: SUCCESS }}>作業完了</p>
+            {activeJob?.completed_at && (
+              <p className="text-xs" style={{ color: `${SUCCESS}b0` }}>
+                {new Date(activeJob.completed_at).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })} に完了
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 進捗（作業中のみ） */}
+      {activeJob && !isJobCompleted && totalSpots > 0 && (
+        <Section title="本日の進捗">
+          <div className="space-y-3">
+            <WorkProgress total={totalSpots} completed={beforeCount} label="Before撮影" />
+            <WorkProgress total={totalSpots} completed={afterCount}  label="After撮影" />
+          </div>
+        </Section>
+      )}
 
       {/* ステータス・タイプ */}
       <div className="flex items-center gap-2 flex-wrap">
@@ -167,6 +315,151 @@ export default function ProjectDetailPage() {
           )}
         </Section>
       )}
+
+      {/* 撮影箇所一覧 */}
+      {totalSpots > 0 && activeJob && (
+        <Section title="撮影箇所">
+          <div className="space-y-2 pt-1">
+            {photoSpots.map((spot) => {
+              const hasBefore = photos.some((p) => p.spot_id === spot.id && p.photo_type === 'before')
+              const hasAfter  = photos.some((p) => p.spot_id === spot.id && p.photo_type === 'after')
+              return (
+                <div
+                  key={spot.id}
+                  className="flex items-center gap-3 rounded-xl px-3 py-2.5"
+                  style={{ background: 'oklch(0.05 0.003 260 / 0.6)', border: `1px solid ${GOLD}10` }}
+                >
+                  <SpotStatusDot hasBefore={hasBefore} hasAfter={hasAfter} required={spot.is_required} />
+                  <span className="flex-1 text-sm" style={{ color: 'oklch(0.90 0.008 75)' }}>{spot.name}</span>
+                  {!spot.is_required && (
+                    <span className="text-[10px]" style={{ color: 'oklch(0.55 0.007 75)' }}>任意</span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </Section>
+      )}
+
+      {/* AIグリッド（作業中/完了両方） */}
+      {(activeJob || isJobCompleted) && (
+        <Section title="AI機能">
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <ActionTile
+              href={`/projects/${id}/manual`}
+              icon={BookOpen}
+              label="マニュアル"
+              iconBg={`${GOLD}12`}
+              iconColor={GOLD}
+            />
+            <ActionTile
+              href={`/projects/${id}/chat`}
+              icon={Sparkles}
+              label="AIに質問"
+              primary
+            />
+            {activeJob && !isJobCompleted && (
+              <>
+                <ActionTile
+                  href={`/projects/${id}/before`}
+                  icon={Camera}
+                  label="Before撮影"
+                  iconBg="oklch(0.55 0.15 240 / 0.15)"
+                  iconColor="oklch(0.75 0.15 240)"
+                />
+                <ActionTile
+                  href={`/projects/${id}/after`}
+                  icon={Camera}
+                  label="After撮影"
+                  iconBg={`${SUCCESS}15`}
+                  iconColor={SUCCESS}
+                />
+              </>
+            )}
+            <ActionTile
+              href={`/projects/${id}/evaluation`}
+              icon={BarChart3}
+              label="AI品質評価"
+              iconBg={`${SUCCESS}15`}
+              iconColor={SUCCESS}
+            />
+            <ActionTile
+              href={`/projects/${id}/report`}
+              icon={FileText}
+              label="報告書"
+              iconBg="oklch(0.75 0.18 60 / 0.15)"
+              iconColor="oklch(0.85 0.18 60)"
+            />
+          </div>
+        </Section>
+      )}
+
+      {/* 固定フッターボタン */}
+      <div
+        className="fixed bottom-0 left-0 right-0 px-4 pb-4 pt-3 md:pl-64"
+        style={{
+          background: 'oklch(0.05 0.003 260 / 0.95)',
+          backdropFilter: 'blur(20px)',
+          borderTop: `1px solid ${GOLD}15`,
+          zIndex: 30,
+        }}
+      >
+        <div className="max-w-2xl mx-auto md:mx-0">
+          {isJobCompleted ? (
+            <div className="flex gap-2">
+              <Link
+                href={`/projects/${id}/report`}
+                className="flex-1 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-base font-semibold"
+                style={{ background: GOLD, color: 'oklch(0.06 0.003 260)' }}
+              >
+                <FileText className="h-5 w-5" /> 報告書
+              </Link>
+              <button
+                onClick={() => router.push('/projects')}
+                className="flex-1 rounded-2xl py-3.5 text-base font-semibold"
+                style={{ background: 'oklch(0.15 0.005 260)', color: 'oklch(0.75 0.008 75)' }}
+              >
+                一覧に戻る
+              </button>
+            </div>
+          ) : activeJob ? (
+            <div className="flex gap-2">
+              <Link
+                href={`/projects/${id}/${beforeCount < totalSpots ? 'before' : 'after'}`}
+                className="flex-1 flex items-center justify-center gap-2 rounded-2xl py-3.5 text-base font-semibold"
+                style={{ background: GOLD, color: 'oklch(0.06 0.003 260)' }}
+              >
+                <Camera className="h-5 w-5" />
+                {beforeCount < totalSpots ? 'Before撮影' : 'After撮影'}
+              </Link>
+              {afterCount === totalSpots && totalSpots > 0 && (
+                <button
+                  onClick={handleComplete}
+                  disabled={completing}
+                  className="flex-1 rounded-2xl py-3.5 text-base font-semibold disabled:opacity-50"
+                  style={{ background: SUCCESS, color: 'white' }}
+                >
+                  {completing ? '処理中…' : '作業完了'}
+                </button>
+              )}
+            </div>
+          ) : (
+            <button
+              onClick={handleStartWork}
+              disabled={starting}
+              className="w-full flex items-center justify-center gap-2 rounded-2xl py-4 text-base font-semibold disabled:opacity-50"
+              style={{ background: GOLD, color: 'oklch(0.06 0.003 260)', boxShadow: `0 0 20px ${GOLD}30` }}
+            >
+              {starting ? (
+                <div className="h-5 w-5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+              ) : (
+                <PlayCircle className="h-5 w-5" />
+              )}
+              {starting ? '準備中…' : '作業を開始する'}
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
