@@ -93,7 +93,7 @@ export function extractSources(reply: string, manuals: ManualItem[]): string[] {
 }
 
 // ============================================================
-// ストリーミング AI 回答生成
+// ストリーミング AI 回答生成（テキストのみ）
 // ============================================================
 
 export async function* generateManualReplyStream(
@@ -106,7 +106,6 @@ export async function* generateManualReplyStream(
 
   const messages = [
     { role: 'system' as const, content: MANUAL_SYSTEM_PROMPT },
-    // 直近10件の会話履歴
     ...chatHistory.slice(-10).map((m) => ({
       role: m.role as 'user' | 'assistant',
       content: m.content,
@@ -119,6 +118,58 @@ export async function* generateManualReplyStream(
 
   const stream = await openai.chat.completions.create({
     model:       OPENAI_MODELS.CHAT,
+    messages,
+    temperature: 0.3,
+    max_tokens:  1500,
+    stream:      true,
+  })
+
+  for await (const chunk of stream) {
+    const text = chunk.choices[0]?.delta?.content
+    if (text) yield text
+  }
+}
+
+// ============================================================
+// Vision対応ストリーミング AI 回答生成（画像付き）
+// gpt-4o は画像入力対応済み
+// ============================================================
+
+export async function* generateManualReplyStreamWithImage(
+  question: string,
+  imageUrl: string,
+  chatHistory: ChatMessage[],
+  manuals: ManualItem[]
+): AsyncGenerator<string, void, unknown> {
+  const openai = createOpenAIClient()
+  const context = buildManualContext(manuals)
+
+  // Vision API: user メッセージに image_url と text を配列で渡す
+  const userContent: Array<{ type: string; text?: string; image_url?: { url: string; detail: string } }> = [
+    {
+      type:      'image_url',
+      image_url: { url: imageUrl, detail: 'high' },
+    },
+    {
+      type: 'text',
+      text: MANUAL_USER_PROMPT(question || '写真を見て、清掃方法や注意事項をアドバイスしてください。', context),
+    },
+  ]
+
+  const messages: any[] = [
+    { role: 'system', content: VISION_SYSTEM_PROMPT },
+    ...chatHistory.slice(-6).map((m) => ({
+      role: m.role,
+      content: m.content,
+    })),
+    {
+      role:    'user',
+      content: userContent,
+    },
+  ]
+
+  const stream = await openai.chat.completions.create({
+    model:       OPENAI_MODELS.VISION,
     messages,
     temperature: 0.3,
     max_tokens:  1500,

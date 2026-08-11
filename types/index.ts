@@ -88,3 +88,13 @@ export interface ApiResponse<T> {
   data?: T
   error?: { code: string; message: string }
 }
+
+// AI チャット
+export interface AIChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  sources: string[] | null
+  image_url: string | null  // AI質問用添付画像URL（Before/After Photoとは別管理）
+  created_at: string
+}

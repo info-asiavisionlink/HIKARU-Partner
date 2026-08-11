@@ -4,7 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { WorkerHeader } from '@/components/layouts/WorkerHeader'
-import { MapPin, Phone, ShieldAlert, Clock, Info, Key, Navigation } from 'lucide-react'
+import { MapPin, Phone, ShieldAlert, Clock, Info, Key, Navigation, Sparkles } from 'lucide-react'
 
 function InfoRow({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value?: string | null }) {
   if (!value) return null
@@ -96,6 +96,33 @@ export default function JobDetailPage() {
           <InfoRow icon={Clock}       label="作業可能時間" value={project.business_hours} />
           <InfoRow icon={Info}        label="注意事項"     value={project.notes} />
         </Section>
+
+        {/* AIに質問 */}
+        <Link
+          href={`/projects/${jobId}/chat`}
+          className="flex items-center justify-between rounded-2xl p-4 transition-all active:scale-[0.98]"
+          style={{
+            background: 'linear-gradient(135deg, oklch(0.09 0.005 255 / 0.90), oklch(0.07 0.004 255 / 0.95))',
+            border: '1px solid oklch(0.73 0.12 78 / 0.35)',
+            boxShadow: '0 0 20px oklch(0.73 0.12 78 / 0.08)',
+          }}
+        >
+          <div className="flex items-center gap-3">
+            <span
+              className="flex h-11 w-11 items-center justify-center rounded-xl"
+              style={{ background: 'oklch(0.73 0.12 78 / 0.15)', border: '1px solid oklch(0.73 0.12 78 / 0.35)' }}
+            >
+              <Sparkles className="h-5 w-5" style={{ color: 'oklch(0.73 0.12 78)', filter: 'drop-shadow(0 0 4px oklch(0.73 0.12 78 / 0.7))' }} />
+            </span>
+            <div>
+              <p className="text-sm font-bold" style={{ color: 'oklch(0.92 0.008 75)' }}>AIに質問</p>
+              <p className="text-xs mt-0.5" style={{ color: 'oklch(0.55 0.007 75)' }}>写真で質問・マニュアル参照</p>
+            </div>
+          </div>
+          <span className="text-xs font-medium px-3 py-1.5 rounded-full" style={{ background: 'oklch(0.73 0.12 78 / 0.15)', color: 'oklch(0.73 0.12 78)' }}>
+            開く
+          </span>
+        </Link>
 
         {/* 入館情報 */}
         {(project.entry_route || project.key_borrowing) && (

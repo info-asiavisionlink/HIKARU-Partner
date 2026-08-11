@@ -8,6 +8,7 @@ export interface ChatMessageRow {
   role: 'user' | 'assistant'
   content: string
   sources: string[] | null
+  image_url: string | null  // AI質問用添付画像URL（Before/After Photoとは別管理）
   created_at: string
 }
 
@@ -33,21 +34,47 @@ export async function loadChatHistory(
   return json.success ? json.data : []
 }
 
-// AIへ質問を送り、ストリーミング受信
+// ============================================================
+// AI質問用画像をStorageへアップロードしてURLを取得
+// Before/After Photoとは完全に分離した専用エンドポイントを使用
+// ============================================================
+
+export async function uploadChatImage(file: File): Promise<string> {
+  const fd = new FormData()
+  fd.append('file', file)
+
+  const res = await fetch('/api/ai/chat-images', {
+    method:      'POST',
+    credentials: 'include',
+    body:        fd,
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err?.error?.message ?? '画像のアップロードに失敗しました')
+  }
+
+  const data = await res.json()
+  if (!data.success || !data.url) throw new Error('画像URLの取得に失敗しました')
+  return data.url
+}
+
+// AIへ質問を送り、ストリーミング受信（テキスト・画像両対応）
 export async function sendChatMessage(params: {
   projectId: string
   message: string
   chatHistory: { role: 'user' | 'assistant'; content: string }[]
   jobId?: string
+  imageUrl?: string  // AI質問用画像URL（アップロード済み）
   callbacks: StreamCallbacks
 }): Promise<void> {
-  const { projectId, message, chatHistory, jobId, callbacks } = params
+  const { projectId, message, chatHistory, jobId, imageUrl, callbacks } = params
 
   const res = await fetch('/api/ai/manual', {
     method:      'POST',
     credentials: 'include',
     headers:     { 'Content-Type': 'application/json' },
-    body:        JSON.stringify({ projectId, message, chatHistory, jobId }),
+    body:        JSON.stringify({ projectId, message, chatHistory, jobId, imageUrl }),
   })
 
   if (!res.ok || !res.body) {

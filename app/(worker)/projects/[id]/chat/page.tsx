@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useParams } from 'next/navigation'
 import {
-  loadChatHistory, sendChatMessage, parseAIResponse,
+  loadChatHistory, sendChatMessage, uploadChatImage, parseAIResponse,
   type ChatMessageRow, type ResponseSection,
 } from '@/services/chat.service'
 import { getTodayJob } from '@/services/jobs.service'
@@ -12,7 +12,7 @@ import { WELCOME_MESSAGE } from '@/modules/manual-ai/prompts'
 import { cn } from '@/lib/utils'
 import {
   Send, BookOpen, AlertTriangle, List,
-  FileText, Sparkles, Bot,
+  FileText, Sparkles, Bot, Camera, X, Image as ImageIcon,
 } from 'lucide-react'
 
 const GOLD    = 'oklch(0.73 0.12 78)'
@@ -55,7 +55,7 @@ function SectionBlock({ section }: { section: ResponseSection }) {
 }
 
 // ============================================================
-// メッセージバブル
+// メッセージバブル（画像対応）
 // ============================================================
 
 function MessageBubble({
@@ -65,17 +65,31 @@ function MessageBubble({
   message: ChatMessageRow & { streamingContent?: string }
   isStreaming?: boolean
 }) {
-  const isUser = message.role === 'user'
+  const isUser  = message.role === 'user'
   const content = isStreaming ? (message.streamingContent ?? '') : message.content
 
   if (isUser) {
     return (
       <div className="flex justify-end">
-        <div
-          className="max-w-[80%] rounded-2xl rounded-br-md px-4 py-3 text-sm leading-relaxed"
-          style={{ background: GOLD, color: 'oklch(0.06 0.003 260)' }}
-        >
-          {content}
+        <div className="max-w-[80%] space-y-2">
+          {message.image_url && (
+            <div className="flex justify-end">
+              <img
+                src={message.image_url}
+                alt="添付画像"
+                className="max-w-[200px] rounded-2xl rounded-br-md object-cover"
+                style={{ border: `2px solid ${GOLD}40`, maxHeight: '200px' }}
+              />
+            </div>
+          )}
+          {content && (
+            <div
+              className="rounded-2xl rounded-br-md px-4 py-3 text-sm leading-relaxed"
+              style={{ background: GOLD, color: 'oklch(0.06 0.003 260)' }}
+            >
+              {content}
+            </div>
+          )}
         </div>
       </div>
     )
@@ -128,10 +142,6 @@ function MessageBubble({
   )
 }
 
-// ============================================================
-// ウェルカムメッセージ
-// ============================================================
-
 function WelcomeMessage() {
   return (
     <div className="flex gap-2.5">
@@ -148,13 +158,41 @@ function WelcomeMessage() {
         <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: 'oklch(0.90 0.008 75)' }}>
           {WELCOME_MESSAGE}
         </p>
+        <p className="mt-2 text-xs" style={{ color: 'oklch(0.55 0.007 75)' }}>
+          📸 写真を撮って質問することもできます
+        </p>
       </div>
     </div>
   )
 }
 
 // ============================================================
-// メインページ
+// 画像プレビュー
+// ============================================================
+
+function ImagePreview({ src, onRemove }: { src: string; onRemove: () => void }) {
+  return (
+    <div className="relative inline-block">
+      <img
+        src={src}
+        alt="添付プレビュー"
+        className="rounded-xl object-cover"
+        style={{ maxWidth: '120px', maxHeight: '120px', border: `2px solid ${GOLD}40` }}
+      />
+      <button
+        onClick={onRemove}
+        className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full"
+        style={{ background: 'oklch(0.65 0.25 27)', color: 'white' }}
+        aria-label="画像を削除"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  )
+}
+
+// ============================================================
+// クイック質問
 // ============================================================
 
 const QUICK_QUESTIONS = [
@@ -164,29 +202,37 @@ const QUICK_QUESTIONS = [
   '厨房の清掃方法は？',
 ]
 
+// ============================================================
+// メインページ
+// ============================================================
+
 export default function ChatPage() {
   const { id: projectId } = useParams<{ id: string }>()
   const [messages, setMessages] = React.useState<(ChatMessageRow & { streamingContent?: string })[]>([])
-  const [input, setInput] = React.useState('')
+  const [input, setInput]       = React.useState('')
   const [isLoading, setIsLoading] = React.useState(false)
+  const [isUploading, setIsUploading] = React.useState(false)
   const [projectName, setProjectName] = React.useState('')
-  const [jobId, setJobId] = React.useState<string | undefined>()
+  const [jobId, setJobId]       = React.useState<string | undefined>()
   const [historyLoaded, setHistoryLoaded] = React.useState(false)
-  const bottomRef = React.useRef<HTMLDivElement>(null)
-  const inputRef  = React.useRef<HTMLTextAreaElement>(null)
+
+  // 画像添付状態
+  const [pendingImage, setPendingImage] = React.useState<File | null>(null)
+  const [previewUrl, setPreviewUrl]     = React.useState<string | null>(null)
+
+  const bottomRef  = React.useRef<HTMLDivElement>(null)
+  const inputRef   = React.useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = React.useRef<HTMLInputElement>(null)
 
   React.useEffect(() => {
     async function init() {
-      // プロジェクト名取得（manuals API のレスポンスから）
       const manRes = await fetch(`/api/projects/${projectId}/manuals`, { credentials: 'include', cache: 'no-store' })
       if (manRes.ok) {
         const j = await manRes.json()
         setProjectName(j.projectName ?? '')
       }
-
       const job = await getTodayJob(projectId)
       if (job) setJobId(job.id)
-
       const history = await loadChatHistory(projectId, 30)
       setMessages(history)
       setHistoryLoaded(true)
@@ -198,18 +244,57 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  // 画像選択
+  function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) return
+    if (file.size > 10 * 1024 * 1024) {
+      alert('画像は10MB以下にしてください')
+      return
+    }
+    setPendingImage(file)
+    setPreviewUrl(URL.createObjectURL(file))
+    e.target.value = ''
+  }
+
+  function removeImage() {
+    setPendingImage(null)
+    if (previewUrl) URL.revokeObjectURL(previewUrl)
+    setPreviewUrl(null)
+  }
+
   async function handleSend(text?: string) {
     const question = (text ?? input).trim()
-    if (!question || isLoading) return
+    if ((!question && !pendingImage) || isLoading) return
 
     setInput('')
     setIsLoading(true)
 
+    let uploadedImageUrl: string | undefined
+
+    // 画像がある場合: 先にStorageへアップロード
+    if (pendingImage) {
+      setIsUploading(true)
+      try {
+        uploadedImageUrl = await uploadChatImage(pendingImage)
+      } catch (err) {
+        alert(err instanceof Error ? err.message : '画像のアップロードに失敗しました')
+        setIsLoading(false)
+        setIsUploading(false)
+        return
+      } finally {
+        setIsUploading(false)
+      }
+      removeImage()
+    }
+
     const userMsg: ChatMessageRow = {
       id:         `temp-user-${Date.now()}`,
       role:       'user',
-      content:    question,
+      content:    question || '（写真を添付して質問）',
       sources:    null,
+      image_url:  uploadedImageUrl ?? null,
       created_at: new Date().toISOString(),
     }
     setMessages((prev) => [...prev, userMsg])
@@ -221,6 +306,7 @@ export default function ChatPage() {
       content:          '',
       streamingContent: '',
       sources:          null,
+      image_url:        null,
       created_at:       new Date().toISOString(),
     }
     setMessages((prev) => [...prev, aiPlaceholder])
@@ -236,6 +322,7 @@ export default function ChatPage() {
         message: question,
         chatHistory,
         jobId,
+        imageUrl: uploadedImageUrl,
         callbacks: {
           onChunk: (chunk) => {
             setMessages((prev) =>
@@ -250,12 +337,7 @@ export default function ChatPage() {
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === aiMsgId
-                  ? {
-                      ...m,
-                      content:          m.streamingContent ?? '',
-                      streamingContent: undefined,
-                      sources,
-                    }
+                  ? { ...m, content: m.streamingContent ?? '', streamingContent: undefined, sources }
                   : m
               )
             )
@@ -265,11 +347,7 @@ export default function ChatPage() {
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === aiMsgId
-                  ? {
-                      ...m,
-                      content:          `エラー: ${errMsg}`,
-                      streamingContent: undefined,
-                    }
+                  ? { ...m, content: `エラー: ${errMsg}`, streamingContent: undefined }
                   : m
               )
             )
@@ -289,6 +367,7 @@ export default function ChatPage() {
     }
   }
 
+  const canSend = (input.trim().length > 0 || pendingImage !== null) && !isLoading
   const hasMessages = messages.length > 0
 
   return (
@@ -317,7 +396,8 @@ export default function ChatPage() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 pb-2">
+      {/* チャット履歴 */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4" style={{ paddingBottom: '160px' }}>
         {!historyLoaded ? (
           <div className="flex justify-center py-8">
             <div className="h-6 w-6 rounded-full border-2 animate-spin" style={{ borderColor: GOLD, borderTopColor: 'transparent' }} />
@@ -337,8 +417,9 @@ export default function ChatPage() {
         <div ref={bottomRef} />
       </div>
 
+      {/* クイック質問（メッセージなし時） */}
       {historyLoaded && !hasMessages && (
-        <div className="px-4 pb-2">
+        <div className="px-4 pb-2 fixed bottom-[152px] left-0 right-0">
           <p className="text-xs mb-2" style={{ color: 'oklch(0.55 0.007 75)' }}>よく使われる質問</p>
           <div className="grid grid-cols-2 gap-1.5">
             {QUICK_QUESTIONS.map((q) => (
@@ -356,21 +437,69 @@ export default function ChatPage() {
         </div>
       )}
 
+      {/* 入力エリア */}
       <div
-        className="sticky bottom-0 px-4 pt-3 pb-3"
+        className="fixed bottom-0 left-0 right-0 px-4 pt-3 pb-4"
         style={{
-          background: 'oklch(0.05 0.003 260 / 0.95)',
+          background: 'oklch(0.05 0.003 260 / 0.97)',
           backdropFilter: 'blur(20px)',
           borderTop: `1px solid ${GOLD}15`,
         }}
       >
+        {/* 画像プレビュー */}
+        {previewUrl && (
+          <div className="mb-3 flex items-center gap-3">
+            <ImagePreview src={previewUrl} onRemove={removeImage} />
+            <div>
+              <p className="text-xs font-medium" style={{ color: GOLD }}>画像を添付済み</p>
+              <p className="text-[10px]" style={{ color: 'oklch(0.55 0.007 75)' }}>
+                テキストを追加して送信（省略可）
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* アップロード中 */}
+        {isUploading && (
+          <div className="mb-2 flex items-center gap-2">
+            <div className="h-4 w-4 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: GOLD }} />
+            <p className="text-xs" style={{ color: 'oklch(0.55 0.007 75)' }}>画像をアップロード中…</p>
+          </div>
+        )}
+
         <div className="flex items-end gap-2">
+          {/* 写真ボタン（カメラ起動・ライブラリ選択） */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleImageSelect}
+            className="hidden"
+            aria-hidden="true"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isLoading || !!pendingImage}
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full transition-all active:scale-90 disabled:opacity-40"
+            style={{
+              background: pendingImage ? `${GOLD}20` : 'oklch(0.12 0.005 260)',
+              border: `1px solid ${GOLD}30`,
+              color: GOLD,
+            }}
+            aria-label="写真を撮る・選択する"
+            title="写真を撮る・選択する"
+          >
+            <Camera className="h-5 w-5" />
+          </button>
+
+          {/* テキスト入力 */}
           <textarea
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="質問を入力してください…"
+            placeholder={pendingImage ? '一言追加（省略可）' : '質問を入力してください…'}
             rows={1}
             disabled={isLoading}
             className={cn(
@@ -382,7 +511,6 @@ export default function ChatPage() {
               background: 'oklch(0.09 0.005 255 / 0.82)',
               border: `1px solid ${GOLD}20`,
               color: 'oklch(0.92 0.008 75)',
-              height: 'auto',
               minHeight: '48px',
             }}
             onInput={(e) => {
@@ -391,11 +519,13 @@ export default function ChatPage() {
               el.style.height = `${Math.min(el.scrollHeight, 128)}px`
             }}
           />
+
+          {/* 送信ボタン */}
           <button
             onClick={() => handleSend()}
-            disabled={isLoading || !input.trim()}
+            disabled={!canSend}
             className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full transition-all active:scale-90 disabled:cursor-not-allowed"
-            style={input.trim() && !isLoading
+            style={canSend
               ? { background: GOLD, color: 'oklch(0.06 0.003 260)', boxShadow: `0 0 12px ${GOLD}60` }
               : { background: 'oklch(0.15 0.005 260)', color: 'oklch(0.55 0.007 75)' }
             }
@@ -408,8 +538,9 @@ export default function ChatPage() {
             )}
           </button>
         </div>
-        <p className="mt-1.5 text-center text-[10px]" style={{ color: 'oklch(0.45 0.006 75)' }}>
-          Enterで送信 / Shift+Enterで改行
+
+        <p className="mt-1.5 text-center text-[10px]" style={{ color: 'oklch(0.40 0.005 75)' }}>
+          <ImageIcon className="inline h-3 w-3 mr-1" />写真のみでも送信できます
         </p>
       </div>
     </div>
