@@ -44,14 +44,21 @@ export async function POST(req: NextRequest) {
 
   const admin = createAdminClient()
 
-  // 会社ID (partners.id) を profile から取得
+  // company_id を entity テーブルから取得（employee/partner共通）
   const { data: profile } = await admin
     .from('profiles')
     .select('entity_type, entity_id')
     .eq('id', uid)
     .single()
 
-  const companyId = profile?.entity_type === 'partner' ? profile.entity_id : null
+  let companyId: string | null = null
+  if (profile?.entity_type === 'employee') {
+    const { data: emp } = await admin.from('employees').select('company_id').eq('id', profile.entity_id).single()
+    companyId = emp?.company_id ?? null
+  } else if (profile?.entity_type === 'partner') {
+    const { data: ptn } = await admin.from('partners').select('company_id').eq('id', profile.entity_id).single()
+    companyId = ptn?.company_id ?? null
+  }
 
   const today = new Date().toISOString().split('T')[0]
 

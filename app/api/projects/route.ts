@@ -20,15 +20,15 @@ export async function GET(req: NextRequest) {
     .eq('id', uid)
     .single()
 
-  if (!profile || profile.entity_type !== 'partner') {
+  if (!profile || !['employee', 'partner'].includes(profile.entity_type)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
-  // 担当プロジェクトID取得
+  // 担当プロジェクトID取得（employee/partner共通）
   const { data: assignments } = await admin
     .from('project_assignments')
     .select('project_id')
-    .eq('assignee_type', 'partner')
+    .eq('assignee_type', profile.entity_type)
     .eq('assignee_id', profile.entity_id)
 
   const projectIds = (assignments ?? []).map((a: any) => a.project_id)
