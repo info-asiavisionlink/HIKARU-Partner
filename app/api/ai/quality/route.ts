@@ -8,9 +8,9 @@ import { evaluateBeforeAfter, checkPhotoQuality } from '@/modules/quality-ai'
 // ============================================================
 
 function getUid(req: NextRequest) {
-  const uid  = req.cookies.get('hk_p_uid')?.value
-  const role = req.cookies.get('hk_p_role')?.value
-  if (!uid || role !== 'partner') return null
+  const uid  = req.cookies.get('hk_w_uid')?.value
+  const role = req.cookies.get('hk_w_role')?.value
+  if (!uid || !['employee','partner'].includes(role ?? '')) return null
   return uid
 }
 

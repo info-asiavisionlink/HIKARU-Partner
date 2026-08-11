@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 
 export async function GET(req: NextRequest) {
-  const uid  = req.cookies.get('hk_p_uid')?.value
-  const role = req.cookies.get('hk_p_role')?.value
+  const uid  = req.cookies.get('hk_w_uid')?.value
+  const role = req.cookies.get('hk_w_role')?.value
 
-  if (!uid || role !== 'partner') {
+  if (!uid || !['employee','partner'].includes(role ?? '')) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 

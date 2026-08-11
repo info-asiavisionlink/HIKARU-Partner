@@ -4,7 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  LayoutDashboard, FolderOpen, Calendar, User, ChevronLeft, ChevronRight, X,
+  Home, Briefcase, FolderOpen, Calendar, Bell, User, ChevronLeft, ChevronRight, X,
 } from 'lucide-react'
 
 type IconComponent = React.ComponentType<{ className?: string; style?: React.CSSProperties }>
@@ -13,9 +13,10 @@ interface NavChild { label: string; href: string }
 interface NavItem  { label: string; href: string; icon: IconComponent; children?: NavChild[] }
 
 const navItems: NavItem[] = [
-  { label: 'ダッシュボード', href: '/dashboard', icon: LayoutDashboard },
+  { label: 'ホーム',       href: '/home',     icon: Home },
+  { label: '作業一覧',     href: '/jobs',     icon: Briefcase },
   {
-    label: '案件管理',
+    label: '案件',
     href: '/projects',
     icon: FolderOpen,
     children: [
@@ -25,8 +26,9 @@ const navItems: NavItem[] = [
       { label: 'ホテル案件', href: '/projects/hotel' },
     ],
   },
-  { label: 'スケジュール', href: '/schedule', icon: Calendar },
-  { label: 'プロフィール', href: '/profile',  icon: User },
+  { label: 'スケジュール', href: '/schedule',      icon: Calendar },
+  { label: '通知',         href: '/notifications', icon: Bell },
+  { label: 'プロフィール', href: '/profile',       icon: User },
 ]
 
 const GOLD = 'oklch(0.73 0.12 78)'
@@ -127,7 +129,7 @@ export function Sidebar({
                   HIKARU
                 </span>
                 <span style={{ fontSize: '8px', letterSpacing: '0.25em', textTransform: 'uppercase', color: `${GOLD}80` }}>
-                  Partner
+                  Worker
                 </span>
               </div>
               {/* モバイル: 閉じるボタン */}

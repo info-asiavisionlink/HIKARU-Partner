@@ -2,8 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 
 export async function GET(req: NextRequest) {
-  const uid = req.cookies.get('hk_p_uid')?.value
-  if (!uid) return NextResponse.json({ user: null }, { status: 401 })
+  const uid  = req.cookies.get('hk_w_uid')?.value
+  const role = req.cookies.get('hk_w_role')?.value
+
+  if (!uid || !['employee', 'partner'].includes(role ?? '')) {
+    return NextResponse.json({ user: null }, { status: 401 })
+  }
 
   const admin = createAdminClient()
   const { data: profile } = await admin
@@ -14,11 +18,22 @@ export async function GET(req: NextRequest) {
 
   if (!profile) return NextResponse.json({ user: null }, { status: 401 })
 
-  const { data: partner } = await admin
-    .from('partners')
-    .select('id, company_name, status')
-    .eq('id', profile.entity_id)
-    .single()
+  let entityData: any = null
+  if (profile.entity_type === 'employee') {
+    const { data } = await admin
+      .from('employees')
+      .select('id, employee_number, department, position, status')
+      .eq('id', profile.entity_id)
+      .single()
+    entityData = data
+  } else if (profile.entity_type === 'partner') {
+    const { data } = await admin
+      .from('partners')
+      .select('id, company_name, status')
+      .eq('id', profile.entity_id)
+      .single()
+    entityData = data
+  }
 
-  return NextResponse.json({ user: { ...profile, partner } })
+  return NextResponse.json({ user: { ...profile, entityData } })
 }

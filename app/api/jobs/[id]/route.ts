@@ -6,9 +6,9 @@ import { createAdminClient } from '@/lib/supabase/server'
 // ============================================================
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const uid  = req.cookies.get('hk_p_uid')?.value
-  const role = req.cookies.get('hk_p_role')?.value
-  if (!uid || role !== 'partner') {
+  const uid  = req.cookies.get('hk_w_uid')?.value
+  const role = req.cookies.get('hk_w_role')?.value
+  if (!uid || !['employee','partner'].includes(role ?? '')) {
     return NextResponse.json({ success: false, error: { code: 'UNAUTHORIZED', message: '認証が必要です' } }, { status: 401 })
   }
 

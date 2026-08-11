@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { PartnerHeader } from '@/components/layouts/PartnerHeader'
+import { WorkerHeader } from '@/components/layouts/WorkerHeader'
 import { MapPin, Phone, ShieldAlert, Clock, Info, Key, Navigation } from 'lucide-react'
 
 function InfoRow({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value?: string | null }) {
@@ -48,7 +48,7 @@ export default function JobDetailPage() {
   if (loading) {
     return (
       <div className="min-h-dvh">
-        <PartnerHeader title="案件詳細" showBack />
+        <WorkerHeader title="案件詳細" showBack />
         <div className="flex justify-center py-16">
           <div className="h-8 w-8 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: 'oklch(0.73 0.12 78)', borderTopColor: 'transparent' }} />
         </div>
@@ -59,7 +59,7 @@ export default function JobDetailPage() {
   if (!project) {
     return (
       <div className="min-h-dvh">
-        <PartnerHeader title="案件詳細" showBack />
+        <WorkerHeader title="案件詳細" showBack />
         <div className="flex flex-col items-center py-16">
           <p style={{ color: 'oklch(0.50 0.007 75)' }}>案件が見つかりませんでした</p>
           <button onClick={() => router.back()} className="mt-4 text-sm" style={{ color: 'oklch(0.73 0.12 78)' }}>戻る</button>
@@ -72,7 +72,7 @@ export default function JobDetailPage() {
 
   return (
     <div className="min-h-dvh">
-      <PartnerHeader title={project.name} showBack />
+      <WorkerHeader title={project.name} showBack />
 
       <div className="px-4 py-4 space-y-3">
         {/* ステータス */}

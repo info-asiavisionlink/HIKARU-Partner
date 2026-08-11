@@ -39,7 +39,6 @@ export async function loginAction(
     return { error: translateAuthError(authError?.message ?? '') }
   }
 
-  // entity_type が partner であることを確認
   const admin = createAdminClient()
   const { data: profile } = await admin
     .from('profiles')
@@ -47,31 +46,42 @@ export async function loginAction(
     .eq('id', authData.user.id)
     .single()
 
-  if (!profile || profile.entity_type !== 'partner') {
+  if (!profile || !['employee', 'partner'].includes(profile.entity_type)) {
     await supabase.auth.signOut()
-    return { error: '協力会社のアカウントではありません。管理者へお問い合わせください。' }
+    return { error: 'ワーカーアカウントではありません。管理者へお問い合わせください。' }
   }
 
-  // 協力業者のステータスを確認
-  const { data: partner } = await admin
-    .from('partners')
-    .select('status')
-    .eq('id', profile.entity_id)
-    .single()
-
-  if (!partner || partner.status !== 'active') {
-    await supabase.auth.signOut()
-    return { error: 'このアカウントは現在無効です。管理者へお問い合わせください。' }
+  // ステータス確認（employee or partner）
+  if (profile.entity_type === 'employee') {
+    const { data: employee } = await admin
+      .from('employees')
+      .select('status')
+      .eq('id', profile.entity_id)
+      .single()
+    if (!employee || employee.status !== 'active') {
+      await supabase.auth.signOut()
+      return { error: 'このアカウントは現在無効です。管理者へお問い合わせください。' }
+    }
+  } else {
+    const { data: partner } = await admin
+      .from('partners')
+      .select('status')
+      .eq('id', profile.entity_id)
+      .single()
+    if (!partner || partner.status !== 'active') {
+      await supabase.auth.signOut()
+      return { error: 'このアカウントは現在無効です。管理者へお問い合わせください。' }
+    }
   }
 
   const isProduction = process.env.NODE_ENV === 'production'
   const maxAge = authData.session.expires_in ?? 3600
   const opts = { httpOnly: true, secure: isProduction, path: '/', maxAge, sameSite: 'lax' } as const
 
-  cookieStore.set('hk_p_role', 'partner',          opts)
-  cookieStore.set('hk_p_uid',  authData.user.id,   opts)
+  cookieStore.set('hk_w_role', profile.entity_type, opts)
+  cookieStore.set('hk_w_uid',  authData.user.id,    opts)
 
-  redirect('/dashboard')
+  redirect('/home')
 }
 
 export async function forgotPasswordAction(
@@ -121,7 +131,7 @@ export async function resetPasswordAction(
   )
   const { error } = await supabase.auth.updateUser({ password })
   if (error) return { error: 'パスワードの変更に失敗しました。' }
-  redirect('/dashboard')
+  redirect('/home')
 }
 
 export async function logoutAction() {
@@ -137,8 +147,8 @@ export async function logoutAction() {
     }
   )
   await supabase.auth.signOut()
-  cookieStore.delete('hk_p_role')
-  cookieStore.delete('hk_p_uid')
+  cookieStore.delete('hk_w_role')
+  cookieStore.delete('hk_w_uid')
   redirect('/login')
 }
 

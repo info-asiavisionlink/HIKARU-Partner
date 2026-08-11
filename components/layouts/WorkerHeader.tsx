@@ -9,7 +9,7 @@ interface Props {
   rightAction?: React.ReactNode
 }
 
-export function PartnerHeader({ title, showBack, rightAction }: Props) {
+export function WorkerHeader({ title, showBack, rightAction }: Props) {
   const router = useRouter()
   return (
     <header

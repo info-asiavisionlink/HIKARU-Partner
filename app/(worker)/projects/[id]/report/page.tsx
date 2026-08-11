@@ -8,7 +8,7 @@ import {
   getScoreColor, getScoreLabel,
   type ReportContent, type ReportListItem,
 } from '@/services/report.service'
-import { PartnerHeader } from '@/components/layouts/PartnerHeader'
+import { WorkerHeader } from '@/components/layouts/WorkerHeader'
 import { calcWorkDuration, formatDateTime, formatDate } from '@/modules/report-ai'
 import { cn } from '@/lib/utils'
 import { toast } from '@/lib/toast'
@@ -453,7 +453,7 @@ export default function ReportPage() {
   if (loading) {
     return (
       <div>
-        <PartnerHeader title="報告書" showBack />
+        <WorkerHeader title="報告書" showBack />
         <div className="flex justify-center py-16">
           <div className="h-8 w-8 rounded-full border-2 animate-spin" style={{ borderColor: GOLD, borderTopColor: 'transparent' }} />
         </div>
@@ -467,7 +467,7 @@ export default function ReportPage() {
 
       <div>
         <div className="no-print">
-          <PartnerHeader
+          <WorkerHeader
             title="報告書"
             showBack
             rightAction={content ? (

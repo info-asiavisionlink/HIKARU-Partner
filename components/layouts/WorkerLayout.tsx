@@ -6,11 +6,11 @@ import { Menu } from 'lucide-react'
 
 const GOLD = 'oklch(0.73 0.12 78)'
 
-interface PartnerLayoutClientProps {
+interface WorkerLayoutClientProps {
   children: React.ReactNode
 }
 
-export function PartnerLayoutClient({ children }: PartnerLayoutClientProps) {
+export function WorkerLayoutClient({ children }: WorkerLayoutClientProps) {
   const [collapsed, setCollapsed] = React.useState(false)
   const [mobileOpen, setMobileOpen] = React.useState(false)
   const [isMd, setIsMd] = React.useState(false)
@@ -88,7 +88,7 @@ export function PartnerLayoutClient({ children }: PartnerLayoutClientProps) {
               HIKARU
             </span>
             <span style={{ fontSize: '9px', letterSpacing: '0.2em', textTransform: 'uppercase', color: `${GOLD}70` }}>
-              Partner
+              Worker
             </span>
           </div>
         </header>

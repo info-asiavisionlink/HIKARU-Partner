@@ -7,7 +7,7 @@ import {
   type ChatMessageRow, type ResponseSection,
 } from '@/services/chat.service'
 import { getTodayJob } from '@/services/jobs.service'
-import { PartnerHeader } from '@/components/layouts/PartnerHeader'
+import { WorkerHeader } from '@/components/layouts/WorkerHeader'
 import { WELCOME_MESSAGE } from '@/modules/manual-ai/prompts'
 import { cn } from '@/lib/utils'
 import {
@@ -293,7 +293,7 @@ export default function ChatPage() {
 
   return (
     <div className="flex flex-col min-h-dvh">
-      <PartnerHeader
+      <WorkerHeader
         title="AIアシスタント"
         showBack
         rightAction={

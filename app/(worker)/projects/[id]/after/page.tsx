@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { getTodayJob, completeJob } from '@/services/jobs.service'
 import { uploadPhoto, getJobPhotos, type PhotoRow } from '@/services/photos.service'
-import { PartnerHeader } from '@/components/layouts/PartnerHeader'
+import { WorkerHeader } from '@/components/layouts/WorkerHeader'
 import { PhotoCapture } from '@/components/worker/PhotoCapture'
 import { WorkProgress } from '@/components/worker/WorkProgress'
 import { cn } from '@/lib/utils'
@@ -98,7 +98,7 @@ export default function AfterPage() {
   if (loading) {
     return (
       <div>
-        <PartnerHeader title="After写真" showBack />
+        <WorkerHeader title="After写真" showBack />
         <div className="flex justify-center py-16">
           <div className="h-8 w-8 rounded-full border-2 animate-spin" style={{ borderColor: GOLD, borderTopColor: 'transparent' }} />
         </div>
@@ -108,7 +108,7 @@ export default function AfterPage() {
 
   return (
     <div>
-      <PartnerHeader title="After写真" showBack />
+      <WorkerHeader title="After写真" showBack />
 
       {/* 進捗 */}
       <div

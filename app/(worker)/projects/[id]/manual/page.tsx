@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { PartnerHeader } from '@/components/layouts/PartnerHeader'
+import { WorkerHeader } from '@/components/layouts/WorkerHeader'
 import { cn } from '@/lib/utils'
 import {
   FileText, Image as ImageIcon, Video, HelpCircle,
@@ -131,7 +131,7 @@ export default function ManualPage() {
 
   return (
     <div>
-      <PartnerHeader
+      <WorkerHeader
         title="マニュアル"
         showBack
         rightAction={
