@@ -27,11 +27,17 @@ export const PHOTO_QUALITY_CHECK_PROMPT = (locationName: string): string => `
 // ---- Before/After比較評価（Validation Gate + Manual Grounding統合） ----
 export const BEFORE_AFTER_EVALUATION_PROMPT = (
   locationName: string,
+  spotDescription?: string,
   manualContext?: string,
 ): string => `
 あなたは清掃業界の品質管理専門AIです。
-「${locationName}」の清掃前（Before）と清掃後（After）の写真を評価します。
+以下の撮影箇所の清掃前（Before）と清掃後（After）の写真を評価します。
 必ず以下の順序で実施し、JSON形式のみで回答してください。
+
+【撮影箇所】
+名称: 「${locationName}」${spotDescription ? `\n説明: ${spotDescription}` : ''}
+
+上記の名称・説明に基づいてStep 1 Validationの matchesSpot判定を行うこと。
 
 ━━━ Step 1: 写真Validation（必ず最初に実施） ━━━
 

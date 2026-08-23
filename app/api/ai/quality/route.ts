@@ -8,22 +8,58 @@ import { searchManuals, type ManualSearchResult } from '@/services/manual-search
 // Quality評価用: note/faq/textのみ、content空は除外
 // ============================================================
 
-const QUALITY_MANUAL_TYPES = new Set(['note', 'faq', 'text'])
-const MANUAL_CONTEXT_MAX_CHARS = 600
+const QUALITY_MANUAL_TYPES   = new Set(['note', 'faq', 'text'])
+const MANUAL_CONTEXT_MAX_CHARS  = 600   // 1 Manualあたりの上限
+const TOTAL_MANUAL_CONTEXT_MAX  = 1500  // 全Manual合計の上限（コストバグ修正）
 
-function buildQualityManualContext(manuals: ManualSearchResult[]): string {
+// Company Manual の Spot 関連度スコア（AI callなし・deterministic）
+// Project Manual は常に 100 で先頭保証
+function getManualRelevance(
+  manual: ManualSearchResult,
+  spotName: string,
+  spotDesc: string,
+): number {
+  if (manual.source === 'project') return 100  // Project は必ず先頭
+
+  const target = `${spotName} ${spotDesc}`.toLowerCase()
+  const source = (manual.title ?? '').toLowerCase()
+
+  // spot.name と title/category が完全部分一致
+  if (spotName.length > 0 && source.includes(spotName.toLowerCase())) return 3
+
+  // spot name/description の単語が title/category に含まれる
+  const words = target.split(/[\s・、。]+/).filter((w) => w.length >= 2)
+  const matched = words.filter((w) => source.includes(w)).length
+  if (matched > 0) return 1
+
+  return 0  // 0点 = hard除外はしない、最後方へソートするだけ
+}
+
+function buildQualityManualContext(
+  manuals: ManualSearchResult[],
+  spotName  = '',
+  spotDesc  = '',
+): string {
   const filtered = manuals.filter(
     (m) => QUALITY_MANUAL_TYPES.has(m.type) && m.content && m.content.trim().length > 0,
   )
   if (filtered.length === 0) return ''
 
-  // project manuals first (searchManuals already returns project before company)
-  const parts = filtered.map((m) => {
+  // Project Manual 先頭、Company Manual は関連度の高い順でソート
+  const scored = filtered.map((m) => ({
+    m,
+    score: getManualRelevance(m, spotName, spotDesc),
+  }))
+  scored.sort((a, b) => b.score - a.score)
+
+  const parts = scored.map(({ m }) => {
     const prefix = m.source === 'project' ? '【案件指示】' : '【会社基準】'
     const body   = (m.content ?? '').trim().slice(0, MANUAL_CONTEXT_MAX_CHARS)
     return `${prefix}「${m.title}」\n${body}`
   })
-  return parts.join('\n\n')
+
+  const raw = parts.join('\n\n')
+  return raw.slice(0, TOTAL_MANUAL_CONTEXT_MAX)  // 合計上限適用
 }
 
 async function getProjectCompanyId(admin: any, projectId: string): Promise<string | null> {
@@ -87,9 +123,10 @@ async function handleEvaluate(body: any, uid: string, admin: any) {
   const { data: job } = await admin.from('jobs').select('id, project_id').eq('id', jobId).eq('worker_id', uid).maybeSingle()
   if (!job) return NextResponse.json({ success: false, error: { code: 'FORBIDDEN', message: 'アクセス権がありません' } }, { status: 403 })
 
-  // 撮影箇所名を取得
-  const { data: spot } = await admin.from('photo_spots').select('name').eq('id', spotId).single()
-  const locationName = spot?.name ?? '撮影箇所'
+  // 撮影箇所名・descriptionを取得
+  const { data: spot } = await admin.from('photo_spots').select('name, description').eq('id', spotId).single()
+  const locationName  = spot?.name        ?? '撮影箇所'
+  const spotDesc      = spot?.description ?? ''
 
   // Manual Context構築（AI callなし・失敗時はGenericな評価へフォールバック）
   let manualContext = ''
@@ -98,13 +135,17 @@ async function handleEvaluate(body: any, uid: string, admin: any) {
       const companyId = await getProjectCompanyId(admin, job.project_id)
       if (companyId) {
         const manuals = await searchManuals({ adminClient: admin, projectId: job.project_id, companyId })
-        manualContext = buildQualityManualContext(manuals)
+        manualContext = buildQualityManualContext(manuals, locationName, spotDesc)
       }
     }
   } catch { /* silent fallback to generic evaluation */ }
 
   try {
-    const result = await evaluateBeforeAfter(beforeUrl, afterUrl, locationName, manualContext || undefined)
+    const result = await evaluateBeforeAfter(
+      beforeUrl, afterUrl, locationName,
+      spotDesc || undefined,
+      manualContext || undefined,
+    )
 
     // Validation Gate: NGならDB保存しない
     if (!result.evaluationPossible) {
@@ -163,22 +204,21 @@ async function handleEvaluateAll(body: any, uid: string, admin: any) {
   const { data: job } = await admin.from('jobs').select('id, project_id').eq('id', jobId).eq('worker_id', uid).single()
   if (!job) return NextResponse.json({ success: false, error: { code: 'FORBIDDEN', message: 'このジョブへのアクセス権がありません' } }, { status: 403 })
 
-  // Manual Context構築（spot loop前に1回だけ実行・AI callなし）
-  let manualContext = ''
+  // Manual一覧を1回だけ取得（spot loop外・AI callなし）
+  let allManuals: ManualSearchResult[] = []
   try {
     if (job.project_id) {
       const companyId = await getProjectCompanyId(admin, job.project_id)
       if (companyId) {
-        const manuals = await searchManuals({ adminClient: admin, projectId: job.project_id, companyId })
-        manualContext = buildQualityManualContext(manuals)
+        allManuals = await searchManuals({ adminClient: admin, projectId: job.project_id, companyId })
       }
     }
-  } catch { /* silent fallback to generic evaluation */ }
+  } catch { /* silent fallback */ }
 
-  // 撮影箇所一覧取得
+  // 撮影箇所一覧取得（description も含む）
   const { data: spots } = await admin
     .from('photo_spots')
-    .select('id, name, is_required')
+    .select('id, name, description, is_required')
     .eq('project_id', job.project_id)
     .order('order_num', { ascending: true })
 
@@ -205,7 +245,14 @@ async function handleEvaluateAll(body: any, uid: string, admin: any) {
     }
 
     try {
-      const result = await evaluateBeforeAfter(pair.before.url, pair.after.url, spot.name, manualContext || undefined)
+      const spotDesc     = spot.description ?? ''
+      // spot ごとに pure function で soft-sort + Total Cap 適用（DB re-query なし）
+      const manualContext = buildQualityManualContext(allManuals, spot.name, spotDesc)
+      const result = await evaluateBeforeAfter(
+        pair.before.url, pair.after.url, spot.name,
+        spotDesc || undefined,
+        manualContext || undefined,
+      )
 
       // Validation Gate: NGならDB保存スキップ
       if (!result.evaluationPossible) {
