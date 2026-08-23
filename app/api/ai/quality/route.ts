@@ -65,6 +65,18 @@ async function handleEvaluate(body: any, uid: string, admin: any) {
   try {
     const result = await evaluateBeforeAfter(beforeUrl, afterUrl, locationName)
 
+    // Validation Gate: NGならDB保存しない
+    if (!result.evaluationPossible) {
+      return NextResponse.json({
+        success:           false,
+        validationFailed:  true,
+        evaluationPossible: false,
+        validation:        result.validation,
+        error: { code: 'VALIDATION_FAILED', message: '写真が評価条件を満たしていません' },
+        issues:            result.validation?.issues ?? [],
+      })
+    }
+
     const { error } = await admin.from('ai_evaluations').upsert(
       {
         job_id:          jobId,
@@ -130,7 +142,7 @@ async function handleEvaluateAll(body: any, uid: string, admin: any) {
     if (p.photo_type === 'after')  photoMap[p.spot_id].after  = p
   }
 
-  const results: { spotId: string; spotName: string; success: boolean; data?: any; error?: string }[] = []
+  const results: { spotId: string; spotName: string; success: boolean; validationFailed?: boolean; validation?: any; issues?: string[]; data?: any; error?: string }[] = []
 
   for (const spot of (spots ?? [])) {
     const pair = photoMap[spot.id]
@@ -141,6 +153,20 @@ async function handleEvaluateAll(body: any, uid: string, admin: any) {
 
     try {
       const result = await evaluateBeforeAfter(pair.before.url, pair.after.url, spot.name)
+
+      // Validation Gate: NGならDB保存スキップ
+      if (!result.evaluationPossible) {
+        results.push({
+          spotId:            spot.id,
+          spotName:          spot.name,
+          success:           false,
+          validationFailed:  true,
+          validation:        result.validation,
+          error:             '写真が評価条件を満たしていません',
+          issues:            result.validation?.issues ?? [],
+        })
+        continue
+      }
 
       await admin.from('ai_evaluations').upsert(
         {

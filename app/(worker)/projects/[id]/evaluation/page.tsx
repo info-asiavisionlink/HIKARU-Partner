@@ -15,7 +15,7 @@ import { toast } from '@/lib/toast'
 import {
   Star, AlertTriangle, RefreshCw,
   ChevronDown, ChevronUp, Lightbulb, CheckCheck,
-  BarChart3, FileText,
+  BarChart3, FileText, Camera,
 } from 'lucide-react'
 
 const GOLD    = 'oklch(0.73 0.12 78)'
@@ -189,6 +189,72 @@ function SpotEvaluationCard({
 }
 
 // ============================================================
+// Validation失敗カード
+// ============================================================
+interface ValidationFailure {
+  spotId:   string
+  spotName: string
+  issues:   string[]
+}
+
+function ValidationFailureCard({
+  failure,
+  projectId,
+}: {
+  failure: ValidationFailure
+  projectId: string
+}) {
+  return (
+    <div
+      className="rounded-2xl overflow-hidden"
+      style={{ border: `1px solid ${WARNING}40` }}
+    >
+      <div
+        className="flex items-center gap-3 px-4 py-3.5"
+        style={{ background: 'oklch(0.09 0.005 255 / 0.82)' }}
+      >
+        <div
+          className="flex flex-col items-center justify-center h-14 w-14 rounded-full font-bold shrink-0 text-[10px] text-center leading-tight"
+          style={{ background: 'oklch(0.15 0.005 260)', color: WARNING }}
+        >
+          評価<br />不能
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-semibold text-sm" style={{ color: 'oklch(0.92 0.008 75)' }}>
+              {failure.spotName}
+            </p>
+            <span
+              className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+              style={{ background: `${WARNING}20`, color: WARNING }}
+            >
+              ⚠️ 写真確認必要
+            </span>
+          </div>
+          {failure.issues.length > 0 && (
+            <ul className="mt-1 space-y-0.5">
+              {failure.issues.map((issue, i) => (
+                <li key={i} className="text-xs" style={{ color: 'oklch(0.60 0.008 75)' }}>
+                  ・{issue}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <Link
+          href={`/projects/${projectId}/after`}
+          className="shrink-0 flex items-center gap-1 text-xs px-3 py-1.5 rounded-xl font-medium"
+          style={{ background: `${WARNING}15`, color: WARNING }}
+        >
+          <Camera className="h-3.5 w-3.5" />
+          撮り直す
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
 // メインコンテンツ
 // ============================================================
 function EvaluationContent() {
@@ -197,12 +263,13 @@ function EvaluationContent() {
   const searchParams = useSearchParams()
   const autoRun = searchParams.get('run') === '1'
 
-  const [evaluations, setEvaluations] = React.useState<EvaluationRow[]>([])
-  const [photos, setPhotos]           = React.useState<any[]>([])
-  const [jobId, setJobId]             = React.useState<string | null>(null)
-  const [loading, setLoading]         = React.useState(true)
-  const [evaluating, setEvaluating]   = React.useState(false)
-  const [completing, setCompleting]   = React.useState(false)
+  const [evaluations, setEvaluations]         = React.useState<EvaluationRow[]>([])
+  const [validationFailures, setValidationFailures] = React.useState<ValidationFailure[]>([])
+  const [photos, setPhotos]                   = React.useState<any[]>([])
+  const [jobId, setJobId]                     = React.useState<string | null>(null)
+  const [loading, setLoading]                 = React.useState(true)
+  const [evaluating, setEvaluating]           = React.useState(false)
+  const [completing, setCompleting]           = React.useState(false)
 
   React.useEffect(() => {
     async function init() {
@@ -239,7 +306,24 @@ function EvaluationContent() {
     if (result.success) {
       const updated = await loadEvaluations(targetJobId)
       setEvaluations(updated)
-      toast.success('AI品質評価が完了しました')
+
+      // Validation失敗スポットを抽出（DB保存なし、0点表示なし）
+      const failures: ValidationFailure[] = (result.results ?? [])
+        .filter((r: any) => r.validationFailed === true)
+        .map((r: any) => ({
+          spotId:   r.spotId,
+          spotName: r.spotName,
+          issues:   r.issues ?? [],
+        }))
+      setValidationFailures(failures)
+
+      if (failures.length === 0) {
+        toast.success('AI品質評価が完了しました')
+      } else if (updated.length > 0) {
+        toast.success(`${updated.length}箇所評価完了。${failures.length}箇所は写真の撮り直しが必要です。`)
+      } else {
+        toast.error('写真が評価条件を満たしていません。撮り直してください。')
+      }
     } else {
       toast.error(`評価に失敗しました: ${result.error}`)
     }
@@ -343,7 +427,8 @@ function EvaluationContent() {
           </div>
         )}
 
-        {!evaluating && evaluations.length === 0 && (
+        {/* 未実行状態（評価もValidation失敗もない） */}
+        {!evaluating && evaluations.length === 0 && validationFailures.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
             <BarChart3 className="h-14 w-14 mb-4" style={{ color: 'oklch(0.40 0.006 75)' }} />
             <p className="text-base font-semibold" style={{ color: 'oklch(0.90 0.008 75)' }}>まだAI評価が実行されていません</p>
@@ -351,6 +436,7 @@ function EvaluationContent() {
           </div>
         )}
 
+        {/* 評価済みスポット一覧 */}
         {!evaluating && evaluations.length > 0 && (
           <div className="px-4 mt-4 space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'oklch(0.55 0.007 75)' }}>
@@ -362,6 +448,18 @@ function EvaluationContent() {
                 evaluation={ev}
                 photos={getSpotPhotos(ev.spot_id)}
               />
+            ))}
+          </div>
+        )}
+
+        {/* Validation失敗スポット（0点扱いなし・DB記録なし） */}
+        {!evaluating && validationFailures.length > 0 && (
+          <div className="px-4 mt-4 space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: WARNING }}>
+              写真確認が必要な箇所 ({validationFailures.length}件)
+            </p>
+            {validationFailures.map((f) => (
+              <ValidationFailureCard key={f.spotId} failure={f} projectId={projectId} />
             ))}
           </div>
         )}
