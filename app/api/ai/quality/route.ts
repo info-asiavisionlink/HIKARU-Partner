@@ -1,6 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { evaluateBeforeAfter, checkPhotoQuality } from '@/modules/quality-ai'
+import { searchManuals, type ManualSearchResult } from '@/services/manual-search.service'
+
+// ============================================================
+// Manual Context Builder（AI callなし）
+// Quality評価用: note/faq/textのみ、content空は除外
+// ============================================================
+
+const QUALITY_MANUAL_TYPES = new Set(['note', 'faq', 'text'])
+const MANUAL_CONTEXT_MAX_CHARS = 600
+
+function buildQualityManualContext(manuals: ManualSearchResult[]): string {
+  const filtered = manuals.filter(
+    (m) => QUALITY_MANUAL_TYPES.has(m.type) && m.content && m.content.trim().length > 0,
+  )
+  if (filtered.length === 0) return ''
+
+  // project manuals first (searchManuals already returns project before company)
+  const parts = filtered.map((m) => {
+    const prefix = m.source === 'project' ? '【案件指示】' : '【会社基準】'
+    const body   = (m.content ?? '').trim().slice(0, MANUAL_CONTEXT_MAX_CHARS)
+    return `${prefix}「${m.title}」\n${body}`
+  })
+  return parts.join('\n\n')
+}
+
+async function getProjectCompanyId(admin: any, projectId: string): Promise<string | null> {
+  const { data } = await admin.from('projects').select('company_id').eq('id', projectId).single()
+  return data?.company_id ?? null
+}
 
 // ============================================================
 // POST /api/ai/quality
@@ -54,16 +83,28 @@ async function handleEvaluate(body: any, uid: string, admin: any) {
     return NextResponse.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'パラメータ不足' } }, { status: 400 })
   }
 
-  // jobアクセス権確認
-  const { data: job } = await admin.from('jobs').select('id').eq('id', jobId).eq('worker_id', uid).maybeSingle()
+  // jobアクセス権確認（project_idも同時取得）
+  const { data: job } = await admin.from('jobs').select('id, project_id').eq('id', jobId).eq('worker_id', uid).maybeSingle()
   if (!job) return NextResponse.json({ success: false, error: { code: 'FORBIDDEN', message: 'アクセス権がありません' } }, { status: 403 })
 
   // 撮影箇所名を取得
   const { data: spot } = await admin.from('photo_spots').select('name').eq('id', spotId).single()
   const locationName = spot?.name ?? '撮影箇所'
 
+  // Manual Context構築（AI callなし・失敗時はGenericな評価へフォールバック）
+  let manualContext = ''
   try {
-    const result = await evaluateBeforeAfter(beforeUrl, afterUrl, locationName)
+    if (job.project_id) {
+      const companyId = await getProjectCompanyId(admin, job.project_id)
+      if (companyId) {
+        const manuals = await searchManuals({ adminClient: admin, projectId: job.project_id, companyId })
+        manualContext = buildQualityManualContext(manuals)
+      }
+    }
+  } catch { /* silent fallback to generic evaluation */ }
+
+  try {
+    const result = await evaluateBeforeAfter(beforeUrl, afterUrl, locationName, manualContext || undefined)
 
     // Validation Gate: NGならDB保存しない
     if (!result.evaluationPossible) {
@@ -122,6 +163,18 @@ async function handleEvaluateAll(body: any, uid: string, admin: any) {
   const { data: job } = await admin.from('jobs').select('id, project_id').eq('id', jobId).eq('worker_id', uid).single()
   if (!job) return NextResponse.json({ success: false, error: { code: 'FORBIDDEN', message: 'このジョブへのアクセス権がありません' } }, { status: 403 })
 
+  // Manual Context構築（spot loop前に1回だけ実行・AI callなし）
+  let manualContext = ''
+  try {
+    if (job.project_id) {
+      const companyId = await getProjectCompanyId(admin, job.project_id)
+      if (companyId) {
+        const manuals = await searchManuals({ adminClient: admin, projectId: job.project_id, companyId })
+        manualContext = buildQualityManualContext(manuals)
+      }
+    }
+  } catch { /* silent fallback to generic evaluation */ }
+
   // 撮影箇所一覧取得
   const { data: spots } = await admin
     .from('photo_spots')
@@ -152,7 +205,7 @@ async function handleEvaluateAll(body: any, uid: string, admin: any) {
     }
 
     try {
-      const result = await evaluateBeforeAfter(pair.before.url, pair.after.url, spot.name)
+      const result = await evaluateBeforeAfter(pair.before.url, pair.after.url, spot.name, manualContext || undefined)
 
       // Validation Gate: NGならDB保存スキップ
       if (!result.evaluationPossible) {
