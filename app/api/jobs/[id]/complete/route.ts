@@ -2,6 +2,24 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 
 // ============================================================
+// Evaluation Freshness（JOB-C2）
+// URL完全一致のみ有効。NULL評価はSTALE扱い。
+// ============================================================
+
+function isEvaluationFresh(
+  evaluation: { evaluated_before_url: string | null; evaluated_after_url: string | null } | null | undefined,
+  currentBeforeUrl: string,
+  currentAfterUrl:  string,
+): boolean {
+  return !!(
+    evaluation?.evaluated_before_url &&
+    evaluation?.evaluated_after_url &&
+    evaluation.evaluated_before_url === currentBeforeUrl &&
+    evaluation.evaluated_after_url  === currentAfterUrl
+  )
+}
+
+// ============================================================
 // POST /api/jobs/[id]/complete — job完了（Server Guard付き）
 //
 // Guard順序:
@@ -12,8 +30,9 @@ import { createAdminClient } from '@/lib/supabase/server'
 //   5. Before写真完全チェック（必須Spotのみ）  → 409
 //   6. After写真完全チェック（必須Spotのみ）   → 409
 //   7. AI Evaluation存在チェック（必須Spotのみ）→ 409
-//   8. REDO recommendation ブロック           → 409
-//   9. 全条件クリア → completed に更新
+//   8. Evaluation freshnessチェック            → 409 EVALUATION_STALE
+//   9. REDO recommendation ブロック           → 409
+//  10. 全条件クリア → completed に更新
 //
 // AI calls: 0 / DB reads: 4 (fixed, no N+1) / DB writes: 1
 // ============================================================
@@ -67,11 +86,19 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     // ── 4. 写真を一括取得（N+1なし） ──────────────────────────
     const { data: photos } = await admin
       .from('photos')
-      .select('spot_id, photo_type')
+      .select('spot_id, photo_type, url')
       .eq('job_id', id)
       .in('spot_id', requiredIds)
 
     const photoList = photos ?? []
+
+    // URL map（freshness check用）
+    const beforeUrlBySpot: Record<string, string> = {}
+    const afterUrlBySpot:  Record<string, string> = {}
+    for (const p of photoList) {
+      if (p.photo_type === 'before') beforeUrlBySpot[p.spot_id] = p.url ?? ''
+      if (p.photo_type === 'after')  afterUrlBySpot[p.spot_id]  = p.url ?? ''
+    }
 
     // ── 5. Before写真チェック ─────────────────────────────────
     const missingBefore = required
@@ -114,7 +141,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     // ── 7. AI Evaluation一括取得（N+1なし） ───────────────────
     const { data: evals } = await admin
       .from('ai_evaluations')
-      .select('spot_id, recommendation')
+      .select('spot_id, recommendation, evaluated_before_url, evaluated_after_url')
       .eq('job_id', id)
       .in('spot_id', requiredIds)
 
@@ -133,6 +160,29 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
             code:           'EVALUATION_MISSING',
             message:        '必須撮影箇所のAI品質評価が完了していません。',
             missingSpotIds: missingEval,
+          },
+        },
+        { status: 409 },
+      )
+    }
+
+    // ── 8. Evaluation freshnessチェック（JOB-C2）────────────────
+    // 写真が撮り直された後に古いEvaluationでcompleteできないようにする
+    const staleSpots = required
+      .filter((s) => {
+        const ev = evalList.find((e) => e.spot_id === s.id)
+        return !isEvaluationFresh(ev, beforeUrlBySpot[s.id] ?? '', afterUrlBySpot[s.id] ?? '')
+      })
+      .map((s) => s.id)
+
+    if (staleSpots.length > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code:    'EVALUATION_STALE',
+            message: '写真が更新されているためAI品質評価を再実行してください。',
+            spotIds: staleSpots,
           },
         },
         { status: 409 },

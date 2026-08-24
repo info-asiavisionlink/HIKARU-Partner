@@ -69,6 +69,25 @@ async function getProjectCompanyId(admin: any, projectId: string): Promise<strin
 }
 
 // ============================================================
+// Evaluation Freshness（JOB-C2）
+// URL完全一致のみ有効。photo_idは不変なので使用しない。
+// NULL評価はSTALE（どの写真を評価した結果か保証できない）。
+// ============================================================
+
+function isEvaluationFresh(
+  evaluation: { evaluated_before_url: string | null; evaluated_after_url: string | null } | null | undefined,
+  currentBeforeUrl: string,
+  currentAfterUrl:  string,
+): boolean {
+  return !!(
+    evaluation?.evaluated_before_url &&
+    evaluation?.evaluated_after_url &&
+    evaluation.evaluated_before_url === currentBeforeUrl &&
+    evaluation.evaluated_after_url  === currentAfterUrl
+  )
+}
+
+// ============================================================
 // POST /api/ai/quality
 // action: 'check' | 'evaluate' | 'evaluate-all'
 // ============================================================
@@ -124,6 +143,18 @@ async function handleEvaluate(body: any, uid: string, admin: any) {
   const { data: job } = await admin.from('jobs').select('id, project_id').eq('id', jobId).eq('worker_id', uid).maybeSingle()
   if (!job) return NextResponse.json({ success: false, error: { code: 'FORBIDDEN', message: 'アクセス権がありません' } }, { status: 403 })
 
+  // ─ Freshness check（JOB-C2）: 同じBefore/AfterならVision AI 0 call ─
+  const { data: cachedEval } = await admin
+    .from('ai_evaluations')
+    .select('evaluated_before_url, evaluated_after_url, score, passed, recommendation, comment, comparison, improvements, remaining_issues, dirty_removal, thoroughness, shine, before_summary, after_summary, photo_quality_ok, photo_quality_issues')
+    .eq('job_id', jobId)
+    .eq('spot_id', spotId)
+    .maybeSingle()
+
+  if (isEvaluationFresh(cachedEval, beforeUrl, afterUrl)) {
+    return NextResponse.json({ success: true, data: cachedEval, fromCache: true })
+  }
+
   // 撮影箇所名・descriptionを取得（hard cap 300文字）
   const { data: spot } = await admin.from('photo_spots').select('name, description').eq('id', spotId).single()
   const locationName  = spot?.name        ?? '撮影箇所'
@@ -162,11 +193,13 @@ async function handleEvaluate(body: any, uid: string, admin: any) {
 
     const { error } = await admin.from('ai_evaluations').upsert(
       {
-        job_id:          jobId,
-        spot_id:         spotId,
-        before_photo_id: beforePhotoId ?? null,
-        after_photo_id:  afterPhotoId  ?? null,
-        score:           result.score,
+        job_id:               jobId,
+        spot_id:              spotId,
+        before_photo_id:      beforePhotoId ?? null,
+        after_photo_id:       afterPhotoId  ?? null,
+        evaluated_before_url: beforeUrl,
+        evaluated_after_url:  afterUrl,
+        score:                result.score,
         dirty_removal:   result.breakdown.dirtyRemoval,
         thoroughness:    result.breakdown.thoroughness,
         shine:           result.breakdown.shine,
@@ -236,12 +269,39 @@ async function handleEvaluateAll(body: any, uid: string, admin: any) {
     if (p.photo_type === 'after')  photoMap[p.spot_id].after  = p
   }
 
-  const results: { spotId: string; spotName: string; success: boolean; validationFailed?: boolean; validation?: any; issues?: string[]; data?: any; error?: string }[] = []
+  // 既存Evaluationを一括取得（JOB-C2 freshness dedup、N+1なし）
+  const { data: existingEvals } = await admin
+    .from('ai_evaluations')
+    .select('spot_id, evaluated_before_url, evaluated_after_url, score, passed, recommendation')
+    .eq('job_id', jobId)
+
+  const evalBySpot = new Map<string, { evaluated_before_url: string | null; evaluated_after_url: string | null; score: number; passed: boolean; recommendation: string }>(
+    (existingEvals ?? []).map((e: any) => [e.spot_id, e]),
+  )
+
+  const results: { spotId: string; spotName: string; success: boolean; validationFailed?: boolean; validation?: any; issues?: string[]; data?: any; fromCache?: boolean; error?: string }[] = []
 
   for (const spot of (spots ?? [])) {
     const pair = photoMap[spot.id]
     if (!pair?.before?.url || !pair?.after?.url) {
       results.push({ spotId: spot.id, spotName: spot.name, success: false, error: '写真が揃っていません' })
+      continue
+    }
+
+    // Freshness check: URLが一致すれば既存評価を再利用（Vision AI 0 call）
+    const existingEval = evalBySpot.get(spot.id)
+    if (isEvaluationFresh(existingEval, pair.before.url, pair.after.url)) {
+      results.push({
+        spotId:    spot.id,
+        spotName:  spot.name,
+        success:   true,
+        fromCache: true,
+        data: {
+          score:          existingEval!.score,
+          passed:         existingEval!.passed,
+          recommendation: existingEval!.recommendation,
+        },
+      })
       continue
     }
 
@@ -271,11 +331,13 @@ async function handleEvaluateAll(body: any, uid: string, admin: any) {
 
       await admin.from('ai_evaluations').upsert(
         {
-          job_id:          jobId,
-          spot_id:         spot.id,
-          before_photo_id: pair.before.id,
-          after_photo_id:  pair.after.id,
-          score:           result.score,
+          job_id:               jobId,
+          spot_id:              spot.id,
+          before_photo_id:      pair.before.id,
+          after_photo_id:       pair.after.id,
+          evaluated_before_url: pair.before.url,
+          evaluated_after_url:  pair.after.url,
+          score:                result.score,
           dirty_removal:   result.breakdown.dirtyRemoval,
           thoroughness:    result.breakdown.thoroughness,
           shine:           result.breakdown.shine,
