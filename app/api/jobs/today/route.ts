@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
+import { getJstDateString } from '@/lib/date-utils'
 
 // ============================================================
 // GET  /api/jobs/today?projectId=xxx        — 今日のjob取得
@@ -21,7 +22,7 @@ export async function GET(req: NextRequest) {
   if (!projectId) return NextResponse.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'projectIdが必要です' } }, { status: 400 })
 
   const admin = createAdminClient()
-  const today = new Date().toISOString().split('T')[0]
+  const today = getJstDateString()
   const { data } = await admin
     .from('jobs')
     .select('*')
@@ -60,7 +61,7 @@ export async function POST(req: NextRequest) {
     companyId = ptn?.company_id ?? null
   }
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = getJstDateString()
 
   // 既存 job
   const { data: existing } = await admin

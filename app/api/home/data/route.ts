@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
+import { getJstDateString } from '@/lib/date-utils'
 
 export async function GET(req: NextRequest) {
   const uid  = req.cookies.get('hk_w_uid')?.value
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest) {
   }
 
   // 本日のjob一覧
-  const today = new Date().toISOString().slice(0, 10)
+  const today = getJstDateString()
   const { data: jobs } = await admin
     .from('jobs')
     .select('id, project_id, status, started_at, completed_at, projects(name, location_name)')
