@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { getTodayJob, completeJob } from '@/services/jobs.service'
 import { uploadPhoto, getJobPhotos, type PhotoRow } from '@/services/photos.service'
 import { WorkerHeader } from '@/components/layouts/WorkerHeader'
@@ -13,16 +13,26 @@ import { ArrowLeft, BarChart3 } from 'lucide-react'
 
 const GOLD    = 'oklch(0.73 0.12 78)'
 const SUCCESS = 'oklch(0.72 0.18 150)'
+const WARNING = 'oklch(0.75 0.18 60)'
 
-export default function AfterPage() {
+// ============================================================
+// AfterContent — useSearchParams 使用のため Suspense で wrap 必須
+// ============================================================
+
+function AfterContent() {
   const { id: projectId } = useParams<{ id: string }>()
   const router = useRouter()
+  const searchParams = useSearchParams()
+
   const [spots, setSpots]         = React.useState<any[]>([])
   const [jobId, setJobId]         = React.useState<string | null>(null)
   const [allPhotos, setAllPhotos] = React.useState<PhotoRow[]>([])
   const [uploading, setUploading] = React.useState<Record<string, boolean>>({})
   const [loading, setLoading]     = React.useState(true)
   const [completing, setCompleting] = React.useState(false)
+
+  // ── spotId クエリ（REDO Target Spot navigation） ────────────
+  const rawTargetId = searchParams.get('spotId') ?? null
 
   React.useEffect(() => {
     async function load() {
@@ -95,6 +105,19 @@ export default function AfterPage() {
   const requiredDone  = spots.filter((s) => s.is_required && !!getSpotPhoto(s.id, 'after')).length
   const canComplete   = requiredDone >= requiredCount
 
+  // ── Target Spot: spotId 検証 + 先頭表示 ─────────────────────
+  // spots がロード済みのときのみ有効な spotId として認識
+  const validTargetId = spots.length > 0 && rawTargetId && spots.some((s) => s.id === rawTargetId)
+    ? rawTargetId
+    : null
+
+  const orderedSpots = React.useMemo(() => {
+    if (!validTargetId) return spots
+    const target = spots.find((s) => s.id === validTargetId)
+    const rest   = spots.filter((s) => s.id !== validTargetId)
+    return target ? [target, ...rest] : spots
+  }, [spots, validTargetId])
+
   if (loading) {
     return (
       <div>
@@ -138,12 +161,13 @@ export default function AfterPage() {
 
       {/* 撮影箇所リスト */}
       <div className="px-4 py-4 space-y-6 pb-40">
-        {spots.map((spot, idx) => {
+        {orderedSpots.map((spot, idx) => {
+          const isTarget    = spot.id === validTargetId
           const beforePhoto = getSpotPhoto(spot.id, 'before')
           const afterPhoto  = getSpotPhoto(spot.id, 'after')
           return (
             <div key={spot.id} className="space-y-2">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span
                   className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold shrink-0"
                   style={{ background: `${GOLD}12`, color: GOLD }}
@@ -153,7 +177,22 @@ export default function AfterPage() {
                 <span className="font-semibold text-base" style={{ color: 'oklch(0.92 0.008 75)' }}>
                   {spot.name}
                 </span>
-                {spot.is_required && <span className="text-sm" style={{ color: 'oklch(0.75 0.20 25)' }}>*</span>}
+                {spot.is_required && (
+                  <span className="text-sm" style={{ color: 'oklch(0.75 0.20 25)' }}>*</span>
+                )}
+                {/* 撮り直し対象バッジ */}
+                {isTarget && (
+                  <span
+                    className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                    style={{
+                      background: `${WARNING}20`,
+                      color:      WARNING,
+                      border:     `1px solid ${WARNING}40`,
+                    }}
+                  >
+                    撮り直し対象
+                  </span>
+                )}
               </div>
 
               <div className="pl-8 grid grid-cols-2 gap-3">
@@ -247,5 +286,26 @@ export default function AfterPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+// ============================================================
+// AfterPage — Suspense wrapper（useSearchParams 使用のため必須）
+// ============================================================
+
+export default function AfterPage() {
+  return (
+    <React.Suspense
+      fallback={
+        <div>
+          <WorkerHeader title="After写真" showBack />
+          <div className="flex justify-center py-16">
+            <div className="h-8 w-8 rounded-full border-2 animate-spin" style={{ borderColor: GOLD, borderTopColor: 'transparent' }} />
+          </div>
+        </div>
+      }
+    >
+      <AfterContent />
+    </React.Suspense>
   )
 }

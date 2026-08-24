@@ -77,16 +77,22 @@ function BreakdownBar({ label, value }: { label: string; value: number | null })
 function SpotEvaluationCard({
   evaluation,
   photos,
+  projectId,
+  isStale,
 }: {
   evaluation: EvaluationRow
   photos: { beforeUrl?: string; afterUrl?: string }
+  projectId: string
+  isStale: boolean
 }) {
   const [expanded, setExpanded] = React.useState(false)
   const info    = getScoreInfo(evaluation.score)
   const recCfg  = RECOMMENDATION_CONFIG[evaluation.recommendation]
   const spotName = evaluation.photo_spots?.name ?? '撮影箇所'
 
-  const borderColor = evaluation.passed ? `${SUCCESS}40` : `${ERROR}40`
+  const borderColor = isStale
+    ? `${WARNING}60`
+    : evaluation.passed ? `${SUCCESS}40` : `${ERROR}40`
 
   return (
     <div
@@ -102,6 +108,14 @@ function SpotEvaluationCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="font-semibold text-sm" style={{ color: 'oklch(0.92 0.008 75)' }}>{spotName}</p>
+            {isStale && (
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                style={{ background: `${WARNING}20`, color: WARNING, border: `1px solid ${WARNING}40` }}
+              >
+                ⚠ 旧評価
+              </span>
+            )}
             <span
               className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
               style={
@@ -118,6 +132,28 @@ function SpotEvaluationCard({
         </div>
         {expanded ? <ChevronUp className="h-4 w-4 shrink-0" style={{ color: GOLD }} /> : <ChevronDown className="h-4 w-4 shrink-0" style={{ color: GOLD }} />}
       </button>
+
+      {/* Stale警告バナー（写真変更後・再評価前） */}
+      {isStale && (
+        <div
+          className="px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap"
+          style={{ background: `${WARNING}10`, borderTop: `1px solid ${WARNING}20` }}
+        >
+          <p className="text-xs font-medium flex items-center gap-1" style={{ color: WARNING }}>
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            この評価は更新前の写真に基づいています。AI品質評価を再実行してください。
+          </p>
+          {evaluation.recommendation === 'redo' && (
+            <Link
+              href={`/projects/${projectId}/after?spotId=${evaluation.spot_id}`}
+              className="shrink-0 flex items-center gap-1 text-xs font-semibold rounded-xl px-2.5 py-1"
+              style={{ background: `${WARNING}20`, color: WARNING }}
+            >
+              <RefreshCw className="h-3 w-3" /> 再撮影
+            </Link>
+          )}
+        </div>
+      )}
 
       {expanded && (
         <div
@@ -181,6 +217,17 @@ function SpotEvaluationCard({
                 ))}
               </ul>
             </div>
+          )}
+
+          {/* REDO時の再清掃ナビゲーション（spot指定） */}
+          {evaluation.recommendation === 'redo' && !isStale && (
+            <Link
+              href={`/projects/${projectId}/after?spotId=${evaluation.spot_id}`}
+              className="flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-semibold"
+              style={{ background: `${ERROR}15`, color: ERROR, border: `1px solid ${ERROR}30` }}
+            >
+              <RefreshCw className="h-4 w-4" /> この箇所を再清掃する
+            </Link>
           )}
         </div>
       )}
@@ -351,6 +398,13 @@ function EvaluationContent() {
     }
   }
 
+  // Stale判定: evaluated URLが現在の写真URLと不一致 or NULL（AI callなし・DB比較のみ）
+  function isEvalStale(ev: EvaluationRow): boolean {
+    const { beforeUrl, afterUrl } = getSpotPhotos(ev.spot_id)
+    if (!ev.evaluated_before_url || !ev.evaluated_after_url) return true
+    return ev.evaluated_before_url !== beforeUrl || ev.evaluated_after_url !== afterUrl
+  }
+
   const computedSummary = React.useMemo(() => {
     if (evaluations.length === 0) return null
     const avg = Math.round(evaluations.reduce((s, e) => s + e.score, 0) / evaluations.length)
@@ -447,6 +501,8 @@ function EvaluationContent() {
                 key={ev.id}
                 evaluation={ev}
                 photos={getSpotPhotos(ev.spot_id)}
+                projectId={projectId}
+                isStale={isEvalStale(ev)}
               />
             ))}
           </div>
@@ -514,7 +570,7 @@ function EvaluationContent() {
               ) : (
                 <div className="flex gap-2">
                   <Link
-                    href={`/projects/${projectId}/after`}
+                    href={`/projects/${projectId}/after${evaluations.find((e) => e.recommendation === 'redo')?.spot_id ? `?spotId=${evaluations.find((e) => e.recommendation === 'redo')!.spot_id}` : ''}`}
                     className="flex-1 flex items-center justify-center gap-1.5 rounded-2xl py-3 text-sm font-semibold"
                     style={{ background: `${WARNING}15`, color: WARNING }}
                   >

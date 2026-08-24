@@ -21,6 +21,8 @@ export interface EvaluationRow {
   photo_quality_ok: boolean
   photo_quality_issues: string[] | null
   created_at: string
+  evaluated_before_url: string | null
+  evaluated_after_url:  string | null
   photo_spots?: { name: string; is_required: boolean }
 }
 
