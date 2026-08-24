@@ -54,9 +54,15 @@ export async function POST(req: NextRequest) {
 
   const admin = createAdminClient()
 
-  // jobアクセス権チェック
-  const { data: job } = await admin.from('jobs').select('id').eq('id', jobId).eq('worker_id', uid).maybeSingle()
+  // jobアクセス権チェック + completed guard（JOB-C6A）
+  const { data: job } = await admin.from('jobs').select('id, status').eq('id', jobId).eq('worker_id', uid).maybeSingle()
   if (!job) return NextResponse.json({ success: false, error: { code: 'FORBIDDEN', message: 'アクセス権がありません' } }, { status: 403 })
+  if (job.status === 'completed') {
+    return NextResponse.json(
+      { success: false, error: { code: 'JOB_ALREADY_COMPLETED', message: 'この作業は既に完了しているため変更できません。' } },
+      { status: 409 },
+    )
+  }
 
   const ext  = file.name.split('.').pop()?.toLowerCase() || 'jpg'
   const path = `${jobId}/${type}/${spotId}_${Date.now()}.${ext}`

@@ -139,9 +139,15 @@ async function handleEvaluate(body: any, uid: string, admin: any) {
     return NextResponse.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'パラメータ不足' } }, { status: 400 })
   }
 
-  // jobアクセス権確認（project_idも同時取得）
-  const { data: job } = await admin.from('jobs').select('id, project_id').eq('id', jobId).eq('worker_id', uid).maybeSingle()
+  // jobアクセス権確認（project_id + status 取得）
+  const { data: job } = await admin.from('jobs').select('id, project_id, status').eq('id', jobId).eq('worker_id', uid).maybeSingle()
   if (!job) return NextResponse.json({ success: false, error: { code: 'FORBIDDEN', message: 'アクセス権がありません' } }, { status: 403 })
+  if (job.status === 'completed') {
+    return NextResponse.json(
+      { success: false, error: { code: 'JOB_ALREADY_COMPLETED', message: 'この作業は既に完了しているため変更できません。' } },
+      { status: 409 },
+    )
+  }
 
   // ─ Freshness check（JOB-C2）: 同じBefore/AfterならVision AI 0 call ─
   const { data: cachedEval } = await admin
@@ -234,9 +240,15 @@ async function handleEvaluateAll(body: any, uid: string, admin: any) {
     return NextResponse.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'jobIdが必要です' } }, { status: 400 })
   }
 
-  // jobアクセス権確認
-  const { data: job } = await admin.from('jobs').select('id, project_id').eq('id', jobId).eq('worker_id', uid).single()
+  // jobアクセス権確認（status 取得でcompleted guard）
+  const { data: job } = await admin.from('jobs').select('id, project_id, status').eq('id', jobId).eq('worker_id', uid).single()
   if (!job) return NextResponse.json({ success: false, error: { code: 'FORBIDDEN', message: 'このジョブへのアクセス権がありません' } }, { status: 403 })
+  if (job.status === 'completed') {
+    return NextResponse.json(
+      { success: false, error: { code: 'JOB_ALREADY_COMPLETED', message: 'この作業は既に完了しているため変更できません。' } },
+      { status: 409 },
+    )
+  }
 
   // Manual一覧を1回だけ取得（spot loop外・AI callなし）
   let allManuals: ManualSearchResult[] = []
