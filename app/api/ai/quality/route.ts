@@ -11,6 +11,7 @@ import { searchManuals, type ManualSearchResult } from '@/services/manual-search
 const QUALITY_MANUAL_TYPES   = new Set(['note', 'faq', 'text'])
 const MANUAL_CONTEXT_MAX_CHARS  = 600   // 1 Manualあたりの上限
 const TOTAL_MANUAL_CONTEXT_MAX  = 1500  // 全Manual合計の上限（コストバグ修正）
+const SPOT_DESC_MAX_CHARS       = 300   // description hard cap（DBに長文が入っていてもAI Promptへは最大300文字）
 
 // Company Manual の Spot 関連度スコア（AI callなし・deterministic）
 // Project Manual は常に 100 で先頭保証
@@ -123,10 +124,10 @@ async function handleEvaluate(body: any, uid: string, admin: any) {
   const { data: job } = await admin.from('jobs').select('id, project_id').eq('id', jobId).eq('worker_id', uid).maybeSingle()
   if (!job) return NextResponse.json({ success: false, error: { code: 'FORBIDDEN', message: 'アクセス権がありません' } }, { status: 403 })
 
-  // 撮影箇所名・descriptionを取得
+  // 撮影箇所名・descriptionを取得（hard cap 300文字）
   const { data: spot } = await admin.from('photo_spots').select('name, description').eq('id', spotId).single()
   const locationName  = spot?.name        ?? '撮影箇所'
-  const spotDesc      = spot?.description ?? ''
+  const spotDesc      = (spot?.description ?? '').trim().slice(0, SPOT_DESC_MAX_CHARS)
 
   // Manual Context構築（AI callなし・失敗時はGenericな評価へフォールバック）
   let manualContext = ''
@@ -245,7 +246,7 @@ async function handleEvaluateAll(body: any, uid: string, admin: any) {
     }
 
     try {
-      const spotDesc     = spot.description ?? ''
+      const spotDesc     = (spot.description ?? '').trim().slice(0, SPOT_DESC_MAX_CHARS)
       // spot ごとに pure function で soft-sort + Total Cap 適用（DB re-query なし）
       const manualContext = buildQualityManualContext(allManuals, spot.name, spotDesc)
       const result = await evaluateBeforeAfter(
